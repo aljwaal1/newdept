@@ -131,61 +131,14 @@ jobs:
             echo "Missing Android signing secrets"
             exit 1
           fi
-          cat > android/key.properties <<EOF
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyPassword=$ANDROID_KEY_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          storeFile=upload-keystore.jks
-          EOF
+
+          printf "storePassword=%s\n" "$ANDROID_KEYSTORE_PASSWORD" > android/key.properties
+          printf "keyPassword=%s\n" "$ANDROID_KEY_PASSWORD" >> android/key.properties
+          printf "keyAlias=%s\n" "$ANDROID_KEY_ALIAS" >> android/key.properties
+          printf "storeFile=upload-keystore.jks\n" >> android/key.properties
 
       - name: Enable release signing
         run: |
-          if [ -f android/app/build.gradle.kts ]; then
-            python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("android/app/build.gradle.kts")
-          s = p.read_text()
-
-          s = s.replace(
-              "plugins {",
-              """import java.util.Properties
-          import java.io.FileInputStream
-
-          val keystoreProperties = Properties()
-          val keystorePropertiesFile = rootProject.file("key.properties")
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-          }
-
-          plugins {""",
-              1,
-          )
-
-          s = s.replace(
-              "android {",
-              """android {
-              signingConfigs {
-                  create("release") {
-                      keyAlias = keystoreProperties["keyAlias"] as String
-                      keyPassword = keystoreProperties["keyPassword"] as String
-                      storeFile = file(keystoreProperties["storeFile"] as String)
-                      storePassword = keystoreProperties["storePassword"] as String
-                  }
-              }
-          """,
-              1,
-          )
-
-          s = s.replace(
-              "signingConfig = signingConfigs.getByName(\"debug\")",
-              "signingConfig = signingConfigs.getByName(\"release\")",
-          )
-
-          p.write_text(s)
-          PY
-          fi
-
           if [ -f android/app/build.gradle ]; then
             python3 - <<'PY'
           from pathlib import Path
@@ -193,21 +146,18 @@ jobs:
           p = Path("android/app/build.gradle")
           s = p.read_text()
 
-          s = s.replace(
-              "plugins {",
-              """def keystoreProperties = new Properties()
+          props = """def keystoreProperties = new Properties()
           def keystorePropertiesFile = rootProject.file('key.properties')
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
           }
 
-          plugins {""",
-              1,
-          )
+          """
 
-          s = s.replace(
-              "android {",
-              """android {
+          if "def keystoreProperties = new Properties()" not in s:
+              s = s.replace("android {", props + "android {", 1)
+
+          signing = """android {
               signingConfigs {
                   release {
                       keyAlias keystoreProperties['keyAlias']
@@ -216,13 +166,51 @@ jobs:
                       storePassword keystoreProperties['storePassword']
                   }
               }
-          """,
-              1,
-          )
+          """
 
+          s = s.replace("android {", signing, 1)
+          s = s.replace("signingConfig signingConfigs.debug", "signingConfig signingConfigs.release")
+
+          p.write_text(s)
+          PY
+          fi
+
+          if [ -f android/app/build.gradle.kts ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text()
+
+          props = """import java.util.Properties
+          import java.io.FileInputStream
+
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("key.properties")
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+
+          """
+
+          if "val keystoreProperties = Properties()" not in s:
+              s = props + s
+
+          signing = """android {
+              signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties["keyAlias"] as String
+                      keyPassword = keystoreProperties["keyPassword"] as String
+                      storeFile = file(keystoreProperties["storeFile"] as String)
+                      storePassword = keystoreProperties["storePassword"] as String
+                  }
+              }
+          """
+
+          s = s.replace("android {", signing, 1)
           s = s.replace(
-              "signingConfig signingConfigs.debug",
-              "signingConfig signingConfigs.release",
+              "signingConfig = signingConfigs.getByName(\"debug\")",
+              "signingConfig = signingConfigs.getByName(\"release\")",
           )
 
           p.write_text(s)
