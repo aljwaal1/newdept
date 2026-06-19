@@ -32,6 +32,7 @@ jobs:
         run: |
           rm -rf android test
           flutter create --platforms android --org com.explapp --project-name arabic_debt_ledger .
+          rm -rf test
 
       - name: Configure Android project
         run: |
